@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/xml"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 )
@@ -39,31 +38,29 @@ https://www.washingtonpost.com/news-sitemaps/local.xml
 </sitemapindex>
 */
 
-//SiteMapIndex contains a slice of all the locations,i.e. sitemap tags
+//If we directly access loc through sitemap, no need of multiple structs
 type SiteMapIndex struct {
-	Locations []Location `xml:"sitemap"`
+	Locations []string `xml:"sitemap>loc"`
 }
-
-//Location contains data at each loc tag
-type Location struct {
-	Loc string `xml:"loc"`
-}
-
-//This function returns the loc as a string type
-func (l Location) String() string {
-	return fmt.Sprintf(l.Loc)
+type News struct {
+	Title    []string `xml:url>news>title`
+	Keywords []string `xml:url>news>keywords`
+	Loc      []string `xml:url>loc`
 }
 
 func main() {
+	var s SiteMapIndex
+	var n News
 	url := "https://www.washingtonpost.com/news-sitemaps/index.xml"
 	resp, _ := getResp(url)
 	bytes, _ := ioutil.ReadAll(resp.Body)
 	// stringBody := convertByteToString(resp)
 	resp.Body.Close()
-	var s SiteMapIndex
 	xml.Unmarshal(bytes, &s)
 	//fmt.Println(s.Locations)
 	for _, sites := range s.Locations { //Range goes through index and values
-		fmt.Println(sites)
+		resp, _ := getResp(sites)
+		bytes, _ = ioutil.ReadAll(resp.Body)
+		xml.Unmarshal(bytes, &n)
 	}
 }
