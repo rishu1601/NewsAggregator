@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"strings"
 )
 
 func getResp(url string) (*http.Response, error) {
@@ -43,24 +46,50 @@ type SiteMapIndex struct {
 	Locations []string `xml:"sitemap>loc"`
 }
 type News struct {
-	Title    []string `xml:url>news>title`
-	Keywords []string `xml:url>news>keywords`
-	Loc      []string `xml:url>loc`
+	Title    []string `xml:"url>news>title"`
+	Keywords []string `xml:"url>news>keywords"`
+	Loc      []string `xml:"url>loc"`
+}
+
+type NewsMap struct {
+	Keywords string
+	Location string
 }
 
 func main() {
 	var s SiteMapIndex
 	var n News
+	newsMap := make(map[string]NewsMap)
 	url := "https://www.washingtonpost.com/news-sitemaps/index.xml"
-	resp, _ := getResp(url)
-	bytes, _ := ioutil.ReadAll(resp.Body)
-	// stringBody := convertByteToString(resp)
-	resp.Body.Close()
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bytes, err := ioutil.ReadAll(resp.Body)
 	xml.Unmarshal(bytes, &s)
-	//fmt.Println(s.Locations)
 	for _, sites := range s.Locations { //Range goes through index and values
-		resp, _ := getResp(sites)
+		sites = strings.TrimSpace(sites)
+		resp, err := http.Get(sites)
+		fmt.Println(sites)
+		if err != nil {
+			log.Fatal(err)
+		}
 		bytes, _ = ioutil.ReadAll(resp.Body)
 		xml.Unmarshal(bytes, &n)
+
+		//Go to each site and extract the data with title as key and loc,keywords as value
+		for idx := range n.Keywords {
+			newsMap[n.Title[idx]] = NewsMap{n.Keywords[idx], n.Loc[idx]}
+		}
+
 	}
+	//Printing information in the Map
+	for idx, data := range newsMap {
+		fmt.Println("Title:", idx)
+		fmt.Println("\nKeywords:", data.Keywords)
+		fmt.Println("\nLocation:", data.Location)
+		fmt.Println("\n")
+	}
+	resp.Body.Close()
+
 }
