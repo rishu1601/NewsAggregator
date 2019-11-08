@@ -7,8 +7,11 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"text/template"
 )
+
+var wg sync.WaitGroup
 
 type SiteMapIndex struct {
 	Locations []string `xml:"sitemap>loc"`
@@ -29,12 +32,28 @@ type NewsAggPage struct {
 	News  map[string]NewsMap
 }
 
+func newsRoutine(news chan News, sites string) {
+	defer wg.Done() //Synchronisation
+	var n News
+	sites = strings.TrimSpace(sites)
+	fmt.Println(sites)
+	resp, err := http.Get(sites)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bytes, _ := ioutil.ReadAll(resp.Body)
+	xml.Unmarshal(bytes, &n)
+	resp.Body.Close()
+
+	news <- n
+}
+
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "<h1>Hi,this is go, u are here</h1>")
 }
+
 func newsAggregatorHandler(w http.ResponseWriter, r *http.Request) {
 	var s SiteMapIndex
-	var n News
 	newsMap := make(map[string]NewsMap)
 	url := "https://www.washingtonpost.com/news-sitemaps/index.xml"
 	resp, err := http.Get(url)
@@ -43,25 +62,25 @@ func newsAggregatorHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	bytes, err := ioutil.ReadAll(resp.Body)
 	xml.Unmarshal(bytes, &s)
-	for _, sites := range s.Locations { //Range goes through index and values
-		sites = strings.TrimSpace(sites)
-		resp, err := http.Get(sites)
-		fmt.Println(sites)
-		if err != nil {
-			log.Fatal(err)
-		}
-		bytes, _ = ioutil.ReadAll(resp.Body)
-		xml.Unmarshal(bytes, &n)
+	resp.Body.Close()
+	queue := make(chan News, 30)
 
-		//Go to each site and extract the data with title as key and loc,keywords as value
-		for idx := range n.Keywords {
-			newsMap[n.Title[idx]] = NewsMap{n.Keywords[idx], n.Loc[idx]}
-		}
-
+	for _, sites := range s.Locations {
+		wg.Add(1) //Adding to waitgroup
+		go newsRoutine(queue, sites)
 	}
-	p := NewsAggPage{Title: "Hi, its blown up", News: newsMap} //Just a sample
-	t, _ := template.ParseFiles("newsAggTemplate.html")        //Making a template
-	t.Execute(w, p)                                            //p is being passed to the template
+
+	wg.Wait()
+	close(queue)
+
+	for elem := range queue {
+		for idx := range elem.Keywords {
+			newsMap[elem.Title[idx]] = NewsMap{elem.Keywords[idx], elem.Loc[idx]}
+		}
+	}
+	p := NewsAggPage{Title: "Basic News Aggregator", News: newsMap}
+	t, _ := template.ParseFiles("newsAggTemplate.html")
+	t.Execute(w, p)
 }
 func main() {
 	http.HandleFunc("/", indexHandler)
